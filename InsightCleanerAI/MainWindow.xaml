@@ -190,6 +190,25 @@
                                                    VerticalScrollBarVisibility="Hidden"
                                                    Background="Transparent"
                                                    Document="{Binding SelectedNode.Insight, Converter={StaticResource MarkdownToFlowDocumentConverter}}" />
+
+                        <Button Content="删除文件/文件夹"
+                                Margin="0,16,0,0"
+                                Padding="12,6"
+                                Click="DeleteNodeButton_Click"
+                                Background="#FFEB4D4D"
+                                Foreground="White"
+                                FontWeight="SemiBold">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="IsEnabled" Value="True" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedNode}" Value="{x:Null}">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

@@ -94,7 +94,7 @@
         <ComboBox Grid.Row="2"
                   Grid.Column="1"
                   ItemsSource="{Binding Source={StaticResource AiModes}}"
-                  SelectedItem="{Binding SelectedAiMode}">
+                  SelectedItem="{Binding SelectedAiMode, Mode=TwoWay}">
             <ComboBox.ItemTemplate>
                 <DataTemplate>
                     <TextBlock Text="{Binding Converter={StaticResource AiModeLabelConverter}}" />
@@ -137,9 +137,30 @@
                    Grid.Column="0"
                    VerticalAlignment="Center"
                    Text="{x:Static res:Strings.LabelCloudModel}" />
-        <TextBox Grid.Row="6"
-                 Grid.Column="1"
-                 Text="{Binding CloudModel, UpdateSourceTrigger=PropertyChanged}" />
+        <StackPanel Grid.Row="6"
+                    Grid.Column="1"
+                    Orientation="Horizontal">
+            <ComboBox Width="340"
+                      IsEditable="True"
+                      ItemsSource="{Binding CloudModels}"
+                      Text="{Binding CloudModel, UpdateSourceTrigger=PropertyChanged}" />
+            <Button Content="获取模型"
+                    Margin="8,0,0,0"
+                    Padding="12,2"
+                    Click="FetchCloudModelsButton_Click">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="IsEnabled" Value="True" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsLoadingCloudModels}" Value="True">
+                                <Setter Property="IsEnabled" Value="False" />
+                                <Setter Property="Content" Value="加载中..." />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </StackPanel>
 
         <TextBlock Grid.Row="7"
                    Grid.Column="0"
@@ -202,10 +223,31 @@
                    Grid.Column="0"
                    VerticalAlignment="Center"
                    Text="{x:Static res:Strings.LabelLocalLlmModel}" />
-        <TextBox Grid.Row="14"
-                 Grid.Column="1"
-                 IsEnabled="{Binding IsLocalLlmConfigEnabled}"
-                 Text="{Binding LocalLlmModel, UpdateSourceTrigger=PropertyChanged}" />
+        <StackPanel Grid.Row="14"
+                    Grid.Column="1"
+                    Orientation="Horizontal">
+            <ComboBox Width="340"
+                      IsEditable="True"
+                      IsEnabled="{Binding IsLocalLlmConfigEnabled}"
+                      ItemsSource="{Binding LocalModels}"
+                      Text="{Binding LocalLlmModel, UpdateSourceTrigger=PropertyChanged}" />
+            <Button Content="获取模型"
+                    Margin="8,0,0,0"
+                    Padding="12,2"
+                    Click="FetchLocalModelsButton_Click">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="IsEnabled" Value="{Binding IsLocalLlmConfigEnabled}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsLoadingLocalModels}" Value="True">
+                                <Setter Property="IsEnabled" Value="False" />
+                                <Setter Property="Content" Value="加载中..." />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </StackPanel>
 
         <TextBlock Grid.Row="15"
                    Grid.Column="0"

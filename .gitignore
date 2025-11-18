@@ -10,3 +10,7 @@
 # Runtime artifacts
 *.db
 *.log
+
+# Claude-related files
+.claude/
+CLAUDE.md

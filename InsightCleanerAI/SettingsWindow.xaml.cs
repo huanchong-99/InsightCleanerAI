@@ -133,7 +133,9 @@ namespace InsightCleanerAI
                 return;
             }
 
+            Infrastructure.DebugLog.Info($"保存为默认设置 - AiMode={ViewModel.SelectedAiMode}, LocalLlmModel={ViewModel.LocalLlmModel}, CloudModel={ViewModel.CloudModel}");
             ViewModel.SaveConfiguration(includeSensitive: false);
+            Infrastructure.DebugLog.Info("默认设置已保存");
             MessageBox.Show(
                 Strings.SaveDefaultsMessage,
                 Strings.ClearCacheDoneTitle,
@@ -143,10 +145,88 @@ namespace InsightCleanerAI
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
-            ViewModel?.SaveConfiguration();
+            if (ViewModel is not null)
+            {
+                Infrastructure.DebugLog.Info($"设置窗口关闭 - 保存配置前 AiMode={ViewModel.SelectedAiMode}, LocalLlmModel={ViewModel.LocalLlmModel}");
+                ViewModel.SaveConfiguration();
+                Infrastructure.DebugLog.Info("设置已保存");
+            }
             Close();
         }
 
+        private async void FetchCloudModelsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel is null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(ViewModel.RemoteServerUrl))
+            {
+                MessageBox.Show(
+                    "请先填写云端服务地址",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            await ViewModel.LoadCloudModelsAsync();
+
+            if (ViewModel.CloudModels.Count == 0)
+            {
+                MessageBox.Show(
+                    "未能获取到模型列表，请检查：\n1. 服务地址是否正确\n2. API Key是否有效\n3. 网络连接是否正常",
+                    "获取失败",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else
+            {
+                MessageBox.Show(
+                    $"成功获取 {ViewModel.CloudModels.Count} 个模型",
+                    "获取成功",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+        }
+
+        private async void FetchLocalModelsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel is null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(ViewModel.LocalLlmEndpoint))
+            {
+                MessageBox.Show(
+                    "请先填写本地LLM服务地址",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            await ViewModel.LoadLocalModelsAsync();
+
+            if (ViewModel.LocalModels.Count == 0)
+            {
+                MessageBox.Show(
+                    "未能获取到模型列表，请检查：\n1. 本地LLM服务是否已启动\n2. 服务地址是否正确\n3. 是否支持模型列表接口",
+                    "获取失败",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else
+            {
+                MessageBox.Show(
+                    $"成功获取 {ViewModel.LocalModels.Count} 个模型",
+                    "获取成功",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+        }
 
         private string GetDatabaseDirectory()
         {

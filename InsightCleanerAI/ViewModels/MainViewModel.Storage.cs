@@ -83,6 +83,7 @@ namespace InsightCleanerAI.ViewModels
 
         private void ApplyInsight(StorageNode node, NodeInsight insight)
         {
+            DebugLog.Info($"应用洞察 - Path={node.FullPath}, IsOffline={insight.IsOffline}, Summary={insight.Summary.Substring(0, Math.Min(50, insight.Summary.Length))}");
             node.Classification = insight.Classification;
             node.ClassificationConfidence = insight.Confidence;
             node.InsightSummary = insight.Summary;

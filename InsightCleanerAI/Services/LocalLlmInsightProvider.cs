@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using InsightCleanerAI.Infrastructure;
 using InsightCleanerAI.Models;
 using InsightCleanerAI.Resources;
 
@@ -18,7 +19,10 @@ namespace InsightCleanerAI.Services
     /// </summary>
     public sealed class LocalLlmInsightProvider : IAiInsightProvider
     {
-        private static readonly HttpClient HttpClient = new();
+        private static readonly HttpClient HttpClient = new()
+        {
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan
+        };
 
         public async Task<NodeInsight> DescribeAsync(
             StorageNode node,
@@ -28,8 +32,11 @@ namespace InsightCleanerAI.Services
             if (string.IsNullOrWhiteSpace(configuration.LocalLlmEndpoint) ||
                 string.IsNullOrWhiteSpace(configuration.LocalLlmModel))
             {
+                DebugLog.Warning($"LocalLlmInsightProvider配置无效 - Endpoint={configuration.LocalLlmEndpoint}, Model={configuration.LocalLlmModel}");
                 return NodeInsight.Empty(NodeClassification.Unknown);
             }
+
+            DebugLog.Info($"LocalLlmInsightProvider开始处理 - Model={configuration.LocalLlmModel}, Path={node.FullPath}");
 
             var prompt = BuildPrompt(node);
             var requestBody = new LocalLlmRequest
@@ -50,28 +57,43 @@ namespace InsightCleanerAI.Services
 
                 request.Content = JsonContent.Create(requestBody);
 
-                using var response = await HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                // 使用配置的超时时间,默认300秒
+                var timeoutSeconds = configuration.LocalLlmRequestTimeoutSeconds > 0
+                    ? configuration.LocalLlmRequestTimeoutSeconds
+                    : 300;
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+                Infrastructure.DebugLog.Info($"本地LLM请求：{node.Name} (超时={timeoutSeconds}秒)");
+                using var response = await HttpClient.SendAsync(request, linkedCts.Token).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
+                    Infrastructure.DebugLog.Warning($"本地LLM请求失败：HTTP {(int)response.StatusCode}");
                     return NodeInsight.Empty(NodeClassification.Unknown);
                 }
 
-                var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var payload = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                Infrastructure.DebugLog.Info($"本地LLM响应：{payload.Substring(0, Math.Min(200, payload.Length))}...");
+
                 var summary = TryExtractSummary(payload);
                 if (string.IsNullOrWhiteSpace(summary))
                 {
-                    return NodeInsight.Empty(NodeClassification.Unknown);
+                    Infrastructure.DebugLog.Warning($"本地LLM响应解析失败，使用原始响应");
+                    // 如果无法解析，至少返回截断的原始响应
+                    summary = payload.Length > 300 ? payload.Substring(0, 300) + "..." : payload;
                 }
 
+                Infrastructure.DebugLog.Info($"本地LLM成功：{node.Name}");
                 return new NodeInsight(
                     GuessClassification(summary),
-                    summary,
+                    summary.Trim(),
                     0.65,
                     Strings.LocalLlmSourceNote,
                     false);
             }
-            catch
+            catch (Exception ex)
             {
+                Infrastructure.DebugLog.Error($"本地LLM异常：{node.Name}", ex);
                 return NodeInsight.Empty(NodeClassification.Unknown);
             }
         }
@@ -126,30 +148,79 @@ namespace InsightCleanerAI.Services
             {
                 using var document = JsonDocument.Parse(payload);
                 var root = document.RootElement;
+
+                // Ollama格式: { "response": "..." }
                 if (root.TryGetProperty("response", out var responseProperty))
                 {
-                    return responseProperty.GetString();
+                    var text = responseProperty.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return text;
+                    }
                 }
 
+                // OpenAI格式: { "choices": [{ "message": { "content": "..." } }] }
                 if (root.TryGetProperty("choices", out var choicesProperty) &&
                     choicesProperty.ValueKind == JsonValueKind.Array)
                 {
                     var first = choicesProperty.EnumerateArray().FirstOrDefault();
-                    if (first.ValueKind == JsonValueKind.Object &&
-                        first.TryGetProperty("message", out var messageProperty) &&
-                        messageProperty.TryGetProperty("content", out var contentProperty))
+                    if (first.ValueKind == JsonValueKind.Object)
                     {
-                        return contentProperty.GetString();
+                        if (first.TryGetProperty("message", out var messageProperty) &&
+                            messageProperty.TryGetProperty("content", out var contentProperty))
+                        {
+                            var text = contentProperty.GetString();
+                            if (!string.IsNullOrWhiteSpace(text))
+                            {
+                                return text;
+                            }
+                        }
+
+                        // 有些实现直接在choice中有text字段
+                        if (first.TryGetProperty("text", out var textProperty))
+                        {
+                            var text = textProperty.GetString();
+                            if (!string.IsNullOrWhiteSpace(text))
+                            {
+                                return text;
+                            }
+                        }
                     }
                 }
 
+                // 直接content字段
                 if (root.TryGetProperty("content", out var content))
                 {
-                    return content.GetString();
+                    var text = content.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return text;
+                    }
+                }
+
+                // 尝试text字段
+                if (root.TryGetProperty("text", out var textProp))
+                {
+                    var text = textProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return text;
+                    }
+                }
+
+                // 尝试output字段
+                if (root.TryGetProperty("output", out var outputProp))
+                {
+                    var text = outputProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return text;
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Infrastructure.DebugLog.Warning($"JSON解析异常: {ex.Message}");
                 return null;
             }
 

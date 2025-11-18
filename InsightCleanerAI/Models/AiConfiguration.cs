@@ -32,6 +32,8 @@
 
         public string? LocalLlmApiKey { get; set; }
 
+        public int LocalLlmRequestTimeoutSeconds { get; set; } = 300;
+
         public bool UseTelemetry { get; set; }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
+using InsightCleanerAI.Infrastructure;
 using InsightCleanerAI.Models;
 
 namespace InsightCleanerAI.Services
@@ -25,6 +26,16 @@ namespace InsightCleanerAI.Services
             AiConfiguration configuration,
             CancellationToken cancellationToken)
         {
+            var selectedProvider = configuration.Mode switch
+            {
+                AiMode.Disabled => "Disabled",
+                AiMode.Local => "Local(HeuristicProvider)",
+                AiMode.LocalLlm => "LocalLlm(LocalLlmProvider)",
+                AiMode.KeyOnline => "KeyOnline(CloudProvider)",
+                _ => "Unknown"
+            };
+            DebugLog.Info($"AI协调器 - Mode={configuration.Mode}, Provider={selectedProvider}, Model={configuration.LocalLlmModel}");
+
             return configuration.Mode switch
             {
                 AiMode.Disabled => Task.FromResult(NodeInsight.Empty()),
