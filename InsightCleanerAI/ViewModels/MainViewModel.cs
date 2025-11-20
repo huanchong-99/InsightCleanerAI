@@ -23,6 +23,7 @@ namespace InsightCleanerAI.ViewModels
         private readonly IStorageScanner _scanner;
         private readonly AiInsightCoordinator _insightCoordinator;
         private readonly ConcurrentDictionary<StorageNode, StorageNodeViewModel> _nodeViewModels = new();
+        private readonly ModelListService _modelListService = new();
 
         private IInsightStore? _insightStore;
         private CancellationTokenSource? _scanCts;
@@ -57,6 +58,12 @@ namespace InsightCleanerAI.ViewModels
         private string[] _activeRecognitionList = Array.Empty<string>();
         private bool _persistApiKeys;
 
+        // 模型列表相关
+        private ObservableCollection<string> _cloudModels = new();
+        private ObservableCollection<string> _localModels = new();
+        private bool _isLoadingCloudModels;
+        private bool _isLoadingLocalModels;
+
         public MainViewModel()
         {
             _scanner = new FileSystemScanner();
@@ -72,8 +79,78 @@ namespace InsightCleanerAI.ViewModels
                 CloudEndpoint = _defaultCloudEndpoint
             };
 
+            DebugLog.Info("=== MainViewModel构造函数开始 ===");
             var config = UserConfigStore.Load();
             ApplyConfig(config);
+
+            // 保存配置中的模型名称，然后清空显示
+            var savedLocalModel = AiConfiguration.LocalLlmModel;
+            var savedCloudModel = AiConfiguration.CloudModel;
+            AiConfiguration.LocalLlmModel = string.Empty;
+            AiConfiguration.CloudModel = string.Empty;
+            DebugLog.Info($"启动时清空模型名称显示 - 保存的本地模型: {savedLocalModel}, 保存的云端模型: {savedCloudModel}");
+
+            // 启动时自动获取模型列表并验证保存的模型
+            DebugLog.Info("启动时自动获取模型列表");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // 根据当前AI模式自动获取相应的模型列表
+                    if (SelectedAiMode == AiMode.LocalLlm && !string.IsNullOrWhiteSpace(AiConfiguration.LocalLlmEndpoint))
+                    {
+                        await LoadLocalModelsAsync();
+
+                        // 验证保存的本地模型是否在可用列表中
+                        if (!string.IsNullOrWhiteSpace(savedLocalModel))
+                        {
+                            if (LocalModels.Count > 0 && LocalModels.Contains(savedLocalModel))
+                            {
+                                DebugLog.Info($"恢复本地模型: {savedLocalModel}");
+                                AiConfiguration.LocalLlmModel = savedLocalModel;
+                                RaisePropertyChanged(nameof(LocalLlmModel));
+                            }
+                            else
+                            {
+                                DebugLog.Warning($"配置的本地模型 '{savedLocalModel}' 不在可用列表中，保持为空");
+                            }
+                        }
+                        else
+                        {
+                            DebugLog.Info("未配置本地模型，保持为空");
+                        }
+                    }
+                    else if (SelectedAiMode == AiMode.KeyOnline && !string.IsNullOrWhiteSpace(AiConfiguration.CloudEndpoint))
+                    {
+                        await LoadCloudModelsAsync();
+
+                        // 验证保存的云端模型是否在可用列表中
+                        if (!string.IsNullOrWhiteSpace(savedCloudModel))
+                        {
+                            if (CloudModels.Count > 0 && CloudModels.Contains(savedCloudModel))
+                            {
+                                DebugLog.Info($"恢复云端模型: {savedCloudModel}");
+                                AiConfiguration.CloudModel = savedCloudModel;
+                                RaisePropertyChanged(nameof(CloudModel));
+                            }
+                            else
+                            {
+                                DebugLog.Warning($"配置的云端模型 '{savedCloudModel}' 不在可用列表中，保持为空");
+                            }
+                        }
+                        else
+                        {
+                            DebugLog.Info("未配置云端模型，保持为空");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.Error("启动时自动获取模型列表失败", ex);
+                }
+            });
+
+            DebugLog.Info($"构造函数完成 - 模型名称已清空，等待获取后验证");
 
             InitializeStorage();
         }
@@ -344,13 +421,23 @@ namespace InsightCleanerAI.ViewModels
 
         public string LocalLlmModel
         {
-            get => AiConfiguration.LocalLlmModel;
+            get
+            {
+                DebugLog.Info($"LocalLlmModel getter调用 - 当前值={AiConfiguration.LocalLlmModel}");
+                return AiConfiguration.LocalLlmModel;
+            }
             set
             {
+                DebugLog.Info($"LocalLlmModel setter调用 - 旧值={AiConfiguration.LocalLlmModel}, 新值={value}");
                 if (AiConfiguration.LocalLlmModel != value)
                 {
                     AiConfiguration.LocalLlmModel = value;
                     RaisePropertyChanged();
+                    DebugLog.Info($"LocalLlmModel已更新 - 最终值={AiConfiguration.LocalLlmModel}");
+                }
+                else
+                {
+                    DebugLog.Info("LocalLlmModel未更新 - 值相同");
                 }
             }
         }
@@ -392,6 +479,30 @@ namespace InsightCleanerAI.ViewModels
             private set => SetField(ref _isScanning, value);
         }
 
+        public ObservableCollection<string> CloudModels
+        {
+            get => _cloudModels;
+            set => SetField(ref _cloudModels, value);
+        }
+
+        public ObservableCollection<string> LocalModels
+        {
+            get => _localModels;
+            set => SetField(ref _localModels, value);
+        }
+
+        public bool IsLoadingCloudModels
+        {
+            get => _isLoadingCloudModels;
+            set => SetField(ref _isLoadingCloudModels, value);
+        }
+
+        public bool IsLoadingLocalModels
+        {
+            get => _isLoadingLocalModels;
+            set => SetField(ref _isLoadingLocalModels, value);
+        }
+
         public async Task ScanAsync()
         {
             if (IsScanning)
@@ -404,6 +515,26 @@ namespace InsightCleanerAI.ViewModels
                 StatusMessage = Strings.StatusPathMissing;
                 DebugLog.Warning($"Scan skipped: root path '{RootPath}' does not exist.");
                 return;
+            }
+
+            // 检查AI模式下模型是否可用
+            if (SelectedAiMode == AiMode.LocalLlm)
+            {
+                if (LocalModels.Count == 0)
+                {
+                    StatusMessage = Strings.StatusNoLocalModels;
+                    DebugLog.Warning($"Scan skipped: LocalLlm mode selected but no local models available.");
+                    return;
+                }
+            }
+            else if (SelectedAiMode == AiMode.KeyOnline)
+            {
+                if (CloudModels.Count == 0)
+                {
+                    StatusMessage = Strings.StatusNoCloudModels;
+                    DebugLog.Warning($"Scan skipped: KeyOnline mode selected but no cloud models available.");
+                    return;
+                }
             }
 
             var scanFilter = BuildScanFilterEntries();
@@ -428,7 +559,10 @@ namespace InsightCleanerAI.ViewModels
                 IsScanning = true;
                 StatusMessage = Strings.StatusPreparingScan;
                 ProgressValue = 0;
-                DebugLog.Info($"Scan started. Root='{RootPath}', Mode={SelectedAiMode}, MaxNodes={MaxNodes}, MaxDepth={MaxDepth}");
+                DebugLog.Info($"=== 扫描开始 ===");
+                DebugLog.Info($"扫描参数 - Root='{RootPath}', MaxNodes={MaxNodes}, MaxDepth={MaxDepth}");
+                DebugLog.Info($"AI配置 - Mode={SelectedAiMode}, LocalLlmEndpoint={AiConfiguration.LocalLlmEndpoint}");
+                DebugLog.Info($"AI配置 - LocalLlmModel={AiConfiguration.LocalLlmModel}, CloudModel={AiConfiguration.CloudModel}");
 
                 var progress = new Progress<ScanProgress>(p =>
                 {
@@ -731,6 +865,76 @@ namespace InsightCleanerAI.ViewModels
             foreach (var child in node.Children)
             {
                 ApplyEmptyInsightRecursively(child);
+            }
+        }
+
+        /// <summary>
+        /// 获取云端可用模型列表
+        /// </summary>
+        public async Task LoadCloudModelsAsync()
+        {
+            if (IsLoadingCloudModels)
+            {
+                return;
+            }
+
+            IsLoadingCloudModels = true;
+            try
+            {
+                var models = await _modelListService.GetCloudModelsAsync(
+                    AiConfiguration.CloudEndpoint,
+                    AiConfiguration.CloudApiKey);
+
+                CloudModels.Clear();
+                foreach (var model in models)
+                {
+                    CloudModels.Add(model);
+                }
+
+                DebugLog.Info($"已加载 {CloudModels.Count} 个云端模型");
+            }
+            catch (Exception ex)
+            {
+                DebugLog.Error("加载云端模型列表失败", ex);
+            }
+            finally
+            {
+                IsLoadingCloudModels = false;
+            }
+        }
+
+        /// <summary>
+        /// 获取本地LLM可用模型列表
+        /// </summary>
+        public async Task LoadLocalModelsAsync()
+        {
+            if (IsLoadingLocalModels)
+            {
+                return;
+            }
+
+            IsLoadingLocalModels = true;
+            try
+            {
+                var models = await _modelListService.GetLocalModelsAsync(
+                    AiConfiguration.LocalLlmEndpoint,
+                    AiConfiguration.LocalLlmApiKey);
+
+                LocalModels.Clear();
+                foreach (var model in models)
+                {
+                    LocalModels.Add(model);
+                }
+
+                DebugLog.Info($"已加载 {LocalModels.Count} 个本地模型");
+            }
+            catch (Exception ex)
+            {
+                DebugLog.Error("加载本地模型列表失败", ex);
+            }
+            finally
+            {
+                IsLoadingLocalModels = false;
             }
         }
 

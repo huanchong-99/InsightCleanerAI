@@ -7,6 +7,7 @@ namespace InsightCleanerAI.ViewModels
     {
         private void ApplyConfig(UserConfig config)
         {
+            DebugLog.Info($"ApplyConfig开始 - AiMode={config.AiMode}, LocalLlmModel={config.LocalLlmModel}");
             _rootPath = string.IsNullOrWhiteSpace(config.RootPath)
                 ? _rootPath
                 : config.RootPath;
@@ -43,8 +44,15 @@ namespace InsightCleanerAI.ViewModels
             AiConfiguration.SearchApiEndpoint = config.SearchApiEndpoint ?? AiConfiguration.SearchApiEndpoint;
             AiConfiguration.SearchApiKey = config.SearchApiKey ?? AiConfiguration.SearchApiKey;
             AiConfiguration.LocalLlmEndpoint = config.LocalLlmEndpoint ?? AiConfiguration.LocalLlmEndpoint;
-            AiConfiguration.LocalLlmModel = config.LocalLlmModel ?? AiConfiguration.LocalLlmModel;
+            AiConfiguration.LocalLlmModel = string.IsNullOrWhiteSpace(config.LocalLlmModel)
+                ? AiConfiguration.LocalLlmModel
+                : config.LocalLlmModel;
             AiConfiguration.LocalLlmApiKey = config.LocalLlmApiKey ?? AiConfiguration.LocalLlmApiKey;
+            AiConfiguration.LocalLlmRequestTimeoutSeconds = config.LocalLlmRequestTimeoutSeconds > 0
+                ? config.LocalLlmRequestTimeoutSeconds
+                : 300;
+
+            DebugLog.Info($"ApplyConfig完成 - AiConfiguration.Mode={AiConfiguration.Mode}, AiConfiguration.LocalLlmModel={AiConfiguration.LocalLlmModel}, LocalLlmTimeout={AiConfiguration.LocalLlmRequestTimeoutSeconds}秒");
 
             RaisePropertyChanged(nameof(RootPath));
             RaisePropertyChanged(nameof(SelectedPrivacyMode));
@@ -101,7 +109,8 @@ namespace InsightCleanerAI.ViewModels
                 SearchApiKey = AiConfiguration.SearchApiKey,
                 LocalLlmEndpoint = AiConfiguration.LocalLlmEndpoint,
                 LocalLlmModel = AiConfiguration.LocalLlmModel,
-                LocalLlmApiKey = AiConfiguration.LocalLlmApiKey
+                LocalLlmApiKey = AiConfiguration.LocalLlmApiKey,
+                LocalLlmRequestTimeoutSeconds = AiConfiguration.LocalLlmRequestTimeoutSeconds
             };
 
             var shouldPersistKeys = includeSensitive && _persistApiKeys;

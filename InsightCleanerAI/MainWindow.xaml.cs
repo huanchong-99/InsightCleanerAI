@@ -1,4 +1,5 @@
 ﻿using InsightCleanerAI.Resources;
+using InsightCleanerAI.Infrastructure;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -14,9 +15,12 @@ namespace InsightCleanerAI
 {
     public partial class MainWindow : Window
     {
+        private readonly bool _isAdmin;
+
         public MainWindow()
         {
             InitializeComponent();
+            _isAdmin = AdminHelper.IsRunningAsAdmin();
         }
 
         private MainViewModel? ViewModel => DataContext as MainViewModel;
@@ -220,6 +224,21 @@ namespace InsightCleanerAI
                 DataContext = DataContext
             };
             window.ShowDialog();
+        }
+
+        private async void DeleteNodeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isAdmin)
+            {
+                MessageBox.Show(
+                    "删除功能需要管理员权限。\n\n请以管理员身份重新启动本程序以使用此功能。",
+                    "需要管理员权限",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            await DeleteSelectedNodeAsync();
         }
 
         private static TreeViewItem? GetAncestorTreeViewItem(DependencyObject? source)

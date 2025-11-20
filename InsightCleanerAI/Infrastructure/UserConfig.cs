@@ -29,6 +29,7 @@ namespace InsightCleanerAI.Infrastructure
         public string? LocalLlmEndpoint { get; set; }
         public string? LocalLlmModel { get; set; }
         public string? LocalLlmApiKey { get; set; }
+        public int LocalLlmRequestTimeoutSeconds { get; set; } = 300;
 
         public bool IgnoreCacheSize { get; set; }
 
